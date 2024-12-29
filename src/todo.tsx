@@ -1,34 +1,37 @@
-import React, { useState, useEffect } from 'react';
-import localforage from 'localforage';
-
-
-
-// "Todo" 型の定義をコンポーネント外で行います
-type Todo = {
-  content: string;
-  readonly id: number;
-  completed_flg: boolean;
-  delete_flg: boolean;
-};
-
-
+import { fetchTodos, createTodo, updateTodo, deleteTodo } from './api';
+// APIとの通信を行う関数をインポートしています　　　// - fetchTodos: Todoリストを取得する関数
+// - createTodo: 新しいTodoを作成する関数　// - updateTodo: 既存のTodoを更新する関数
+// - deleteTodo: Todoを削除する関数
+export interface Todo {    // Todoインターフェースを定義し、外部からも使用できるようにexportしています
+  content: string; // タスクの内容を格納する文字列型のプロパティ
+  readonly id: number; // タスクの一意のID（数値型）  //readonly修飾子により、一度設定したら変更できない（読み取り専用）
+  completed_flg: boolean; // タスクが完了したかどうかを示すブール型のフラグ // true: 完了済み、false: 未完了
+  delete_flg: boolean; // タスクが削除されたかどうかを示すブール型のフラグ // true: 削除済み、false: 有効
+}
 
 type Filter = 'all' | 'completed' | 'unchecked' | 'delete';
 
 
 // Todo コンポーネントの定義
+import React, { useState, useEffect } from 'react';
 const Todo: React.FC = () => {
   const [todos, setTodos] = useState<Todo[]>([]); // Todoの配列を保持するステート
-  const [text, setText] = useState(''); // フォーム入力のためのステート
+  const [text, setText] = useState('');
   const [nextId, setNextId] = useState(1); // 次のTodoのIDを保持するステート
-  const [filter, setFilter] = useState<Filter>('all'); // フィルタのステート
+  // 追加
+  const [filter, setFilter] = useState<Filter>('all');
 
+  const isFormDisabled = filter === 'completed' || filter === 'delete';
 
+  const handleFilterChange = (filter: Filter) => {
+    setFilter(filter);
+  };
 
+  // コンポーネントマウント時にRails APIからデータを取得
   useEffect(() => {
-    // ここに副作用の処理を書く
-    console.log('TODO!');
+    fetchTodos().then(data => setTodos(data)); // 全てのタスクを取得
   }, []);
+
 
 
   // const updateTodo = <T extends keyof Todo>(todos: Todo[], id: number, key: T, value: Todo[T]): Todo[] => {
@@ -41,25 +44,22 @@ const Todo: React.FC = () => {
   // };
   
 
-
-  // todos ステートを更新する関数
+  
+  // 新しいTodoを作成する関数
   const handleSubmit = () => {
     if (!text) return;
 
-
-
-    const newTodo: Todo = {
+    const newTodo: Omit<Todo, 'id'> = {
       content: text,
-      id: nextId,
       completed_flg: false,
       delete_flg: false,
     };
 
-
-
-    setTodos((prevTodos) => [newTodo, ...prevTodos]);
-    setNextId(nextId + 1);
-    setText('');
+    createTodo(newTodo).then(data => {
+      setTodos((prevTodos) => [data, ...prevTodos]);
+      setNextId(nextId + 1); // 次のTodoIDをインクリメント
+      setText(''); // フォームの入力をクリア
+    });
   };
 
 
@@ -100,52 +100,34 @@ const Todo: React.FC = () => {
   // };
 
 
-  const handleFilterChange = (filter: Filter) => {
-    setFilter(filter);
-  };
+    // 特定のTodoのプロパティを更新する関数
+const handleTodo = <K extends keyof Todo, V extends Todo[K]>(
+  id: number,
+  key: K,
+  value: V
+) => {
+  const updatedTodos = todos.map(todo =>
+    todo.id === id ? { ...todo, [key]: value } : todo
+  );
 
+  setTodos(updatedTodos);
 
-
-  const handleTodo = <K extends keyof Todo, V extends Todo[K]>(
-    id: number,
-    key: K,
-    value: V
-  ) => {
-    setTodos((todos) => {
-      const newTodos = todos.map((todo) => {
-        if (todo.id === id) {
-          return { ...todo, [key]: value };
-        } else {
-          return todo;
-        }
-      });
-  
-      return newTodos;
-    });
-  };
+  const todo = updatedTodos.find(todo => todo.id === id);
+  if (todo) {
+    updateTodo(id, todo);
+  }
+};
 
 
    // 物理的に削除する関数
-   const handleEmpty = () => {
-    setTodos((todos) => todos.filter((todo) => !todo.delete_flg));
-  };
+const handleEmpty = () => {
+  const filteredTodos = todos.filter(todo => !todo.delete_flg);
+  const deletePromises = todos
+    .filter(todo => todo.delete_flg)
+    .map(todo => deleteTodo(todo.id));
 
-
-  // useEffect フックを使ってコンポーネントのマウント時にデータを取得
-  useEffect(() => {
-    localforage.getItem('todo-20240622').then((values) => {
-      if (values) {
-        setTodos(values as Todo[]);
-      }
-    });
-  }, []);
-
-
-
-  // useEffect フックを使って todos ステートが更新されるたびにデータを保存
-  useEffect(() => {
-    localforage.setItem('todo-20240622', todos);
-  }, [todos]);
+  Promise.all(deletePromises).then(() => setTodos(filteredTodos));
+};
 
 
 
