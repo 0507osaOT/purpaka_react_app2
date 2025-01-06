@@ -1,155 +1,99 @@
+import { fetchTodos, createTodo, updateTodo, deleteTodo } from './api';
+import TodoItem from './components/TodoItem';
+import type { Todo } from './types';
 import React, { useState, useEffect } from 'react';
-import localforage from 'localforage';
-
-
-
-// "Todo" 型の定義をコンポーネント外で行います
-type Todo = {
-  content: string;
-  readonly id: number;
-  completed_flg: boolean;
-  delete_flg: boolean;
-};
-
-
+import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
 
 type Filter = 'all' | 'completed' | 'unchecked' | 'delete';
 
+// TodoItemPropsの型定義を追加
+type TodoItemProps = {
+  todo: Todo;
+  updateTodo: (id: number, todo: Todo) => Promise<Todo>;
+  setTodos: React.Dispatch<React.SetStateAction<Todo[]>>;
+  todos: Todo[];
+  index: number;
+  provided: any;
+  snapshot: any;
+};
 
-// Todo コンポーネントの定義
 const Todo: React.FC = () => {
-  const [todos, setTodos] = useState<Todo[]>([]); // Todoの配列を保持するステート
-  const [text, setText] = useState(''); // フォーム入力のためのステート
-  const [nextId, setNextId] = useState(1); // 次のTodoのIDを保持するステート
-  const [filter, setFilter] = useState<Filter>('all'); // フィルタのステート
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [text, setText] = useState('');
+  const [nextId, setNextId] = useState(1);
+  const [filter, setFilter] = useState<Filter>('all');
 
-
+  const isFormDisabled = filter === 'completed' || filter === 'delete';
 
   useEffect(() => {
-    // ここに副作用の処理を書く
-    console.log('TODO!');
+    fetchTodos().then(data => setTodos(data));
   }, []);
-
-
-  // const updateTodo = <T extends keyof Todo>(todos: Todo[], id: number, key: T, value: Todo[T]): Todo[] => {
-  //   return todos.map((todo) => {
-  //     if (todo.id === id) {
-  //       return { ...todo, [key]: value };
-  //     }
-  //     return todo;
-  //   });
-  // };
-  
-
-
-  // todos ステートを更新する関数
-  const handleSubmit = () => {
-    if (!text) return;
-
-
-
-    const newTodo: Todo = {
-      content: text,
-      id: nextId,
-      completed_flg: false,
-      delete_flg: false,
-    };
-
-
-
-    setTodos((prevTodos) => [newTodo, ...prevTodos]);
-    setNextId(nextId + 1);
-    setText('');
-  };
-
-
-
-  // フィルタリングされたタスクリストを取得する関数
-  const getFilteredTodos = () => {
-    switch (filter) {
-      case 'completed':
-        // 完了済み **かつ** 削除されていないタスクを返す
-        return todos.filter((todo) => todo.completed_flg && !todo.delete_flg);
-      case 'unchecked':
-        // 未完了 **かつ** 削除されていないタスクを返す
-        return todos.filter((todo) => !todo.completed_flg && !todo.delete_flg);
-      case 'delete':
-        // 削除されたタスクを返す
-        return todos.filter((todo) => todo.delete_flg);
-      default:
-        // 削除されていないすべてのタスクを返す
-        return todos.filter((todo) => !todo.delete_flg);
-    }
-  };
-
-
-
-  // 共通の更新関数を使用したイベント処理関数
-  // const handleEdit = (id: number, value: string) => {
-  //   setTodos((todos) => updateTodo(todos, id, 'content', value));
-  // };
-
-
-  // const handleCheck = (id: number, completed_flg: boolean) => {
-  //   setTodos((todos) => updateTodo(todos, id, 'completed_flg', completed_flg));
-  // };
-
-
-  // const handleRemove = (id: number, delete_flg: boolean) => {
-  //   setTodos((todos) => updateTodo(todos, id, 'delete_flg', delete_flg));
-  // };
-
 
   const handleFilterChange = (filter: Filter) => {
     setFilter(filter);
   };
 
+  const handleSubmit = () => {
+    if (!text) return;
 
+    const newTodo: Omit<Todo, 'id'> = {
+      content: text,
+      completed_flg: false,
+      delete_flg: false,
+      sort: 0,
+    };
 
-  const handleTodo = <K extends keyof Todo, V extends Todo[K]>(
-    id: number,
-    key: K,
-    value: V
-  ) => {
-    setTodos((todos) => {
-      const newTodos = todos.map((todo) => {
-        if (todo.id === id) {
-          return { ...todo, [key]: value };
-        } else {
-          return todo;
-        }
+    createTodo(newTodo).then(data => {
+      setTodos((prevTodos) => [data, ...prevTodos]);
+      setNextId(nextId + 1);
+      setText('');
+    });
+  };
+
+  const getFilteredTodos = () => {
+    switch (filter) {
+      case 'completed':
+        return todos.filter((todo) => todo.completed_flg && !todo.delete_flg);
+      case 'unchecked':
+        return todos.filter((todo) => !todo.completed_flg && !todo.delete_flg);
+      case 'delete':
+        return todos.filter((todo) => todo.delete_flg);
+      default:
+        return todos.filter((todo) => !todo.delete_flg);
+    }
+  };
+
+  const handleEmpty = () => {
+    const filteredTodos = todos.filter(todo => !todo.delete_flg);
+    const deletePromises = todos
+      .filter(todo => todo.delete_flg)
+      .map(todo => deleteTodo(todo.id));
+    
+    Promise.all(deletePromises).then(() => setTodos(filteredTodos));
+  };
+
+  const handleDragEnd = (result: DropResult) => {
+    if (!result.destination) {
+      console.log("ドラッグがキャンセルされました");
+      return;
+    }
+    
+    const newTodos = Array.from(todos);
+    const [movedTodo] = newTodos.splice(result.source.index, 1);
+    newTodos.splice(result.destination.index, 0, movedTodo);
+    
+    setTodos(newTodos);
+    console.log("並べ替え後のTodos:", newTodos);
+    
+    newTodos.forEach((todo, index) => {
+      const updatedTodo = { ...todo, sort: index + 1 };
+      updateTodo(todo.id, updatedTodo).catch((error) => {
+        console.error(`Todo ${todo.id} の更新に失敗しました:`, error);
       });
-  
-      return newTodos;
     });
   };
 
-
-   // 物理的に削除する関数
-   const handleEmpty = () => {
-    setTodos((todos) => todos.filter((todo) => !todo.delete_flg));
-  };
-
-
-  // useEffect フックを使ってコンポーネントのマウント時にデータを取得
-  useEffect(() => {
-    localforage.getItem('todo-20240622').then((values) => {
-      if (values) {
-        setTodos(values as Todo[]);
-      }
-    });
-  }, []);
-
-
-
-  // useEffect フックを使って todos ステートが更新されるたびにデータを保存
-  useEffect(() => {
-    localforage.setItem('todo-20240622', todos);
-  }, [todos]);
-
-
-
- return (
+  return (
     <div className="todo-container">
       <select
         defaultValue="all"
@@ -160,52 +104,58 @@ const Todo: React.FC = () => {
         <option value="unchecked">現在のタスク</option>
         <option value="delete">ごみ箱</option>
       </select>
-      {/* フィルターが `delete` のときは「ごみ箱を空にする」ボタンを表示 */}
-      {filter === 'delete' ? (
-        <button onClick={handleEmpty}>
-          ごみ箱を空にする
-        </button>
-      ) : (
-        // フィルターが `completed` でなければ Todo 入力フォームを表示
-        filter !== 'completed' && (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSubmit();
-            }}
-          >
-            <input
-              type="text"
-              value={text} // フォームの入力値をステートにバインド
-              onChange={(e) => setText(e.target.value)} // 入力値が変わった時にステートを更新
-            />
-            <button type="submit">追加</button>
-          </form>
-        )
+
+      {filter === 'delete' && (
+        <button onClick={handleEmpty}>ごみ箱を空にする</button>
       )}
-      <ul>
-        {getFilteredTodos().map((todo) => (
-          <li key={todo.id}>
-            <input
-              type="checkbox"
-              disabled={todo.delete_flg}
-              checked={todo.completed_flg}
-              onChange={() => handleTodo(todo.id, 'completed_flg', !todo.completed_flg)}
-            />
-            <input
-              type="text"
-              disabled={todo.completed_flg || todo.delete_flg}
-              value={todo.content}
-              onChange={(e) => handleTodo(todo.id, 'content', e.target.value)}
-            />
-            <button onClick={() => handleTodo(todo.id, 'delete_flg', !todo.delete_flg)}>
-              {todo.delete_flg ? '復元' : '削除'}
-            </button>
-          </li>
-        ))}
-      </ul>
+      
+      {filter !== 'completed' && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSubmit();
+          }}
+        >
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <button type="submit">追加</button>
+        </form>
+      )}
+
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <Droppable droppableId="todos">
+          {(provided) => (
+            <ul {...provided.droppableProps} ref={provided.innerRef}>
+              {getFilteredTodos().map((todo,mappingIndex) => (
+                <Draggable
+                  key={todo.id}
+                  draggableId={String(todo.id)}
+                  index={mappingIndex}
+                >
+                  {(provided, snapshot) => (
+                    <TodoItem
+                      todo={todo}
+                      
+                      updateTodo={updateTodo}
+                      setTodos={setTodos}
+                      todos={todos}
+                      provided={provided}
+                      snapshot={snapshot}
+                      index={mappingIndex}
+                    />
+                  )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
+            </ul>
+          )}
+        </Droppable>
+      </DragDropContext>
     </div>
   );
-  };
-  
-  export default Todo;
+};
+
+export default Todo;
