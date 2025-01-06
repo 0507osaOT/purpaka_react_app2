@@ -1,12 +1,9 @@
 // src/api.ts
-// Todo型をインポートしています
-import { Todo } from './todo';
+// src/api.ts
+import type { Todo } from './types'; // type-only import で型をインポート
 
-// Todo一覧を取得する非同期関数。戻り値はTodoの配列です
 export const fetchTodos = async (): Promise<Todo[]> => {
-  // localhost:3031のエンドポイントにGETリクエストを送信
   const response = await fetch("http://localhost:3031/api/v1/todos");
-  // レスポンスをJSON形式で返却
   return response.json();
 };
 
